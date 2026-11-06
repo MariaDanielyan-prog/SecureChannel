@@ -42,14 +42,40 @@ The following test scripts are available:
 
 Run them using the Python virtual environment.
 
-## Limitations
+## Implemented Features
+
+- Linux network namespaces: PC1, Device1, Device2, PC2.
+- Inline TCP/IPv4 processing using NetfilterQueue.
+- Authenticated X25519 Diffie-Hellman handshake.
+- HKDF-based session key derivation.
+- Separate AES-GCM keys for both directions.
+- TCP payload encryption without UDP encapsulation.
+- AES-GCM authentication tag appended to the TCP payload.
+- TCP/IP checksum recalculation.
+- TCP MSS clamping to 1400 bytes.
+- Rejection of modified encrypted packets.
+- Cached ciphertext for identical TCP retransmissions.
+
+## Tests Performed
+
+- HTTP GET request: 200 OK.
+- Bidirectional encryption and decryption.
+- 10,000-byte HTTP POST transmission.
+- AES-GCM authentication tag verification.
+- NFQUEUE handler rejection of tampered packets.
+- TCP retransmission and conflicting-segment tests.
+- Python syntax validation.
+
+## Known Limitations
 
 This is an educational prototype, not a production-ready VPN.
 
-Nonce derivation uses TCP flow identifiers and sequence numbers. Retransmitted identical segments reuse cached ciphertext rather than performing a new encryption. Conflicting payloads with the same segment identity are dropped.
+- Nonce uniqueness is not guaranteed across all TCP connection lifecycles.
+- Replay protection is incomplete.
+- Packet caches have no eviction policy.
+- Session rekeying is not fully implemented.
+- IP fragmentation and network offloading require additional testing.
+- MSS clamping is configured for the demonstration topology.
+- Only selected TCP/IPv4 traffic is protected.
 
-The implementation does not provide general replay protection, full TCP sequence-reuse handling, robust session rekeying, IP fragmentation handling, or complete MTU/MSS management.
-
-The demonstration currently protects selected client-to-server TCP payloads only. It does not encrypt the reverse HTTP response.
-
-The PSK file must be provisioned separately and must never be committed to Git.
+The PSK must be provisioned separately and must never be committed to Git.

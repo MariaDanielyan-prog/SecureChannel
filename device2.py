@@ -1,23 +1,16 @@
 import hashlib
-import hmac
 from netfilterqueue import NetfilterQueue
 from scapy.all import IP, TCP
+
 from handshake import server
-from secure_packet import decrypt_tcp_packet
+from session_keys import derive_direction_keys
+from bidirectional_crypto import encrypt_packet, decrypt_packet
+from packet_nonce import derive_packet_nonce
 
-SESSION_KEY = None
+KEYS = {}
+CACHE = {}
+USED_NONCES = {}
 
-def nonce_for(packet, key):
-    ip = IP(packet)
-    tcp = ip[TCP]
-    identity = (
-        ip.src.encode() + b"|" +
-        ip.dst.encode() + b"|" +
-        tcp.sport.to_bytes(2, "big") +
-        tcp.dport.to_bytes(2, "big") +
-        tcp.seq.to_bytes(4, "big")
-    )
-    return hmac.new(key, b"nonce-v1|" + identity, hashlib.sha256).digest()[:12]
 
 def process_packet(packet):
     try:
@@ -31,36 +24,97 @@ def process_packet(packet):
         tcp = ip[TCP]
         payload = bytes(tcp.payload)
 
-        if ip.src != "10.0.1.2" or ip.dst != "10.0.3.2" or tcp.dport != 8080 or not payload:
+        if not payload:
             packet.accept()
             return
 
-        nonce = nonce_for(original, SESSION_KEY)
-        decrypted = decrypt_tcp_packet(original, SESSION_KEY, nonce)
+        if ip.src == "10.0.1.2" and ip.dst == "10.0.3.2" and tcp.dport == 8080:
+            direction = "pc1_to_pc2"
 
-        packet.set_payload(decrypted)
+            decrypted = decrypt_packet(
+                original,
+                KEYS[direction],
+                direction
+            )
+
+            packet.set_payload(decrypted)
+            packet.accept()
+
+            print(
+                f"Device2: decrypted {len(payload) - 16} bytes",
+                flush=True
+            )
+            return
+
+        if ip.src == "10.0.3.2" and ip.dst == "10.0.1.2" and tcp.sport == 8080:
+            direction = "pc2_to_pc1"
+            key = KEYS[direction]
+
+            identity = (
+                ip.src, ip.dst,
+                tcp.sport, tcp.dport, tcp.seq
+            )
+
+            digest = hashlib.sha256(payload).digest()
+
+            if identity in CACHE:
+                old_digest, encrypted = CACHE[identity]
+
+                if old_digest != digest:
+                    print("Device2: conflicting TCP segment", flush=True)
+                    packet.drop()
+                    return
+            else:
+                nonce = derive_packet_nonce(original, key, direction)
+
+                if nonce in USED_NONCES:
+                    print("Device2: nonce reuse blocked", flush=True)
+                    packet.drop()
+                    return
+
+                encrypted = encrypt_packet(original, key, direction)
+
+                USED_NONCES[nonce] = identity
+                CACHE[identity] = (digest, encrypted)
+
+            packet.set_payload(encrypted)
+            packet.accept()
+
+            print(
+                f"Device2: encrypted {len(payload)} bytes",
+                flush=True
+            )
+            return
+
         packet.accept()
-        print(f"Device2: authenticated and decrypted {len(payload) - 16} bytes", flush=True)
 
     except Exception as error:
-        print(f"Device2: authentication/decryption failed: {error}", flush=True)
+        print(f"Device2 error: {error}", flush=True)
         packet.drop()
 
+
 def main():
-    global SESSION_KEY
+    global KEYS
+
     print("Device2: starting handshake...", flush=True)
-    SESSION_KEY = server()
+
+    session_key = server()
+    KEYS = derive_direction_keys(session_key)
+
     print("Device2: secure session ready", flush=True)
 
     queue = NetfilterQueue()
     queue.bind(2, process_packet)
+
     print("Device2: waiting for packets...", flush=True)
+
     try:
         queue.run()
     except KeyboardInterrupt:
         pass
     finally:
         queue.unbind()
+
 
 if __name__ == "__main__":
     main()
