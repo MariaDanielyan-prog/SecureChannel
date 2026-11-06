@@ -53,3 +53,38 @@ The implementation does not provide general replay protection, full TCP sequence
 The demonstration currently protects selected client-to-server TCP payloads only. It does not encrypt the reverse HTTP response.
 
 The PSK file must be provisioned separately and must never be committed to Git.
+
+## Implemented Features
+
+- Linux network namespaces simulating PC1, Device1, Device2, and PC2.
+- Inline TCP/IPv4 packet processing using NetfilterQueue.
+- Authenticated X25519 Diffie-Hellman key exchange.
+- Session key derivation using HKDF.
+- Separate AES-GCM keys for both traffic directions.
+- Encryption of TCP payloads without UDP encapsulation or custom protocol headers.
+- AES-GCM authentication tag appended to encrypted TCP payloads.
+- TCP payload decryption and packet checksum recalculation.
+- TCP MSS clamping to accommodate the authentication tag.
+- Detection and rejection of modified encrypted packets.
+- Cached ciphertext for identical TCP retransmissions.
+
+## Tests Performed
+
+- Successful HTTP GET request and response.
+- Bidirectional AES-GCM encryption and decryption.
+- Transmission of a 10,000-byte HTTP POST request.
+- AES-GCM authentication tag verification.
+- Rejection of tampered packets by the Device2 NFQUEUE handler.
+- Identical TCP retransmission handling.
+- Rejection of conflicting TCP segments.
+- Python syntax validation.
+
+## Known Limitations
+
+This is an educational prototype, not a production-ready VPN or security appliance.
+
+- The nonce derivation scheme does not guarantee uniqueness across every possible TCP connection lifecycle.
+- Packet caches grow without a defined eviction policy.
+- Replay protection is incomplete.
+- The implementation targets selected TCP/IPv4 traffic, not arbitrary network protocols.
+- Additional testing is required for packet loss, fragmentation, offloading, and session rekeying.
